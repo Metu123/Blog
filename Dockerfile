@@ -7,8 +7,7 @@ FROM directus/directus:latest
 
 WORKDIR /directus
 
-# Copy environment configuration
-COPY .env .env
+
 
 # Install database clients and utilities
 RUN apk add --no-cache \
