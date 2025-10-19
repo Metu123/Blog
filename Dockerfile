@@ -1,43 +1,39 @@
 # ────────────────────────────────────────────────
 # ✅ Directus Render Auto Backend
-# Connects to ANY SQL database (MySQL or PostgreSQL)
-# Boots even if database has no tables yet
+# Works with Aiven, PlanetScale, Supabase, or any SQL DB
+# Boots even if the database has no tables yet
 # ────────────────────────────────────────────────
 FROM directus/directus:latest
 
+# Set working directory
 WORKDIR /directus
 
+# Switch to root temporarily to install packages
+USER root
+RUN apk add --no-cache mysql-client postgresql-client curl bash
+USER node
 
-
-# Install database clients and utilities
-RUN apk add --no-cache \
-    mysql-client \
-    postgresql-client \
-    curl \
-    bash
-
-# Allow secure SSL connections (for Aiven, PlanetScale, etc.)
+# Allow secure SSL connections (for Aiven)
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 
+# Expose Directus port
 EXPOSE 8055
 
-# Health check endpoint
+# Health check for uptime monitoring
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8055/server/health || exit 1
 
 # ────────────────────────────────────────────────
-# Start script logic:
-# 1️⃣ Detect database type
-# 2️⃣ Wait for DB connectivity (not tables)
-# 3️⃣ Bootstrap admin login (only if not yet created)
-# 4️⃣ Start Directus UI & API
+# Start Script:
+# 1️⃣ Waits for MySQL/Postgres connection
+# 2️⃣ Skips table creation if DB is empty
+# 3️⃣ Boots Directus admin if not initialized
 # ────────────────────────────────────────────────
 CMD sh -c '\
   echo "🚀 Launching Directus Auto Backend..." && \
   echo "🔍 Database: $DB_CLIENT at $DB_HOST:$DB_PORT" && \
   echo "📦 Database name: $DB_DATABASE" && \
   \
-  # Database connection waiting with timeout
   MAX_RETRIES=30 && \
   RETRY_COUNT=0 && \
   \
@@ -58,15 +54,14 @@ CMD sh -c '\
   fi; \
   \
   if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then \
-    echo "❌ Database connection failed after $MAX_RETRIES attempts" && \
-    echo "   Check your DB_HOST, DB_PORT, DB_USER, and DB_PASSWORD" && \
+    echo "❌ Database connection failed after $MAX_RETRIES attempts"; \
     exit 1; \
   fi; \
   \
   echo "✅ Database connection established!" && \
-  echo "🔑 Bootstrapping Directus (creates tables & admin user)..." && \
-  npx directus bootstrap || echo "⚠️  Bootstrap skipped (likely already initialized)" && \
+  echo "🔑 Bootstrapping Directus (creates admin if needed)..." && \
+  npx directus bootstrap || echo "⚠️ Bootstrap skipped (already initialized)" && \
   \
-  echo "🎉 Starting Directus on port $PORT..." && \
-  echo "🌐 Public URL: $PUBLIC_URL" && \
+  echo "🎉 Starting Directus..." && \
+  echo "🌐 Public URL: ${PUBLIC_URL:-http://localhost:8055}" && \
   npx directus start'
