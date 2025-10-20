@@ -1,52 +1,52 @@
 # ────────────────────────────────────────────────
-# ✅ Directus Render Auto Backend
-# Works with Aiven, PlanetScale, Supabase, or any SQL DB
-# Boots even if the database has no tables yet
+# ✅ Directus Render Auto Backend (PostgreSQL-ready)
+# Works with Render, Aiven, Supabase, PlanetScale, etc.
 # ────────────────────────────────────────────────
 FROM directus/directus:latest
 
 # Set working directory
 WORKDIR /directus
 
-# Switch to root temporarily to install packages
+# Switch to root temporarily to install DB clients
 USER root
-RUN apk add --no-cache mysql-client postgresql-client curl bash
+RUN apk add --no-cache postgresql-client mysql-client curl bash
 USER node
 
-# Allow secure SSL connections (for Aiven)
+# Allow SSL connections (for cloud databases)
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 
 # Expose Directus port
 EXPOSE 8055
 
-# Health check for uptime monitoring
+# Healthcheck for uptime monitoring
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8055/server/health || exit 1
 
 # ────────────────────────────────────────────────
-# Start Script:
-# 1️⃣ Waits for MySQL/Postgres connection
-# 2️⃣ Skips table creation if DB is empty
-# 3️⃣ Boots Directus admin if not initialized
+# Startup Script
+# 1️⃣ Wait for DB connection
+# 2️⃣ Bootstrap Directus (admin auto-setup)
+# 3️⃣ Start Directus server
 # ────────────────────────────────────────────────
 CMD sh -c '\
   echo "🚀 Launching Directus Auto Backend..." && \
-  echo "🔍 Database: $DB_CLIENT at $DB_HOST:$DB_PORT" && \
-  echo "📦 Database name: $DB_DATABASE" && \
+  echo "🔍 Database client: ${DB_CLIENT:-pg}" && \
+  echo "🌐 Public URL: ${PUBLIC_URL:-http://localhost:8055}" && \
   \
   MAX_RETRIES=30 && \
   RETRY_COUNT=0 && \
   \
-  if [ "$DB_CLIENT" = "postgres" ] || [ "$DB_CLIENT" = "pg" ]; then \
-    echo "⏳ Waiting for PostgreSQL connection..." && \
-    until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" 2>/dev/null || [ $RETRY_COUNT -eq $MAX_RETRIES ]; do \
+  # Detect Postgres client
+  if [ "${DB_CLIENT:-pg}" = "pg" ] || [ "$DB_CLIENT" = "postgres" ]; then \
+    echo "⏳ Waiting for PostgreSQL connection to ${DB_HOST}..." && \
+    until pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" >/dev/null 2>&1 || [ $RETRY_COUNT -eq $MAX_RETRIES ]; do \
       RETRY_COUNT=$((RETRY_COUNT + 1)); \
       echo "   Attempt $RETRY_COUNT/$MAX_RETRIES..."; \
       sleep 3; \
     done; \
   else \
-    echo "⏳ Waiting for MySQL connection..." && \
-    until mysqladmin ping -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" --silent 2>/dev/null || [ $RETRY_COUNT -eq $MAX_RETRIES ]; do \
+    echo "⏳ Waiting for MySQL connection to ${DB_HOST}..." && \
+    until mysqladmin ping -h"$DB_HOST" -P"${DB_PORT:-3306}" -u"$DB_USER" -p"$DB_PASSWORD" --silent >/dev/null 2>&1 || [ $RETRY_COUNT -eq $MAX_RETRIES ]; do \
       RETRY_COUNT=$((RETRY_COUNT + 1)); \
       echo "   Attempt $RETRY_COUNT/$MAX_RETRIES..."; \
       sleep 3; \
@@ -59,9 +59,8 @@ CMD sh -c '\
   fi; \
   \
   echo "✅ Database connection established!" && \
-  echo "🔑 Bootstrapping Directus (creates admin if needed)..." && \
+  echo "🔑 Bootstrapping Directus..." && \
   npx directus bootstrap || echo "⚠️ Bootstrap skipped (already initialized)" && \
   \
   echo "🎉 Starting Directus..." && \
-  echo "🌐 Public URL: ${PUBLIC_URL:-http://localhost:8055}" && \
   npx directus start'
